@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atunse</title>
+<style>
+  :root { --bg:#f6f5f1; --card:#fff; --ink:#1c1c1a; --muted:#6b6a64; --line:#e3e1da; --accent:#0f6b4f; --bad:#b3412e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:20px 24px 0; max-width:900px; margin:auto; }
+  h1 { margin:0; font-size:22px; } h1 span { color:var(--accent); }
+  .sub { color:var(--muted); font-size:14px; margin-top:4px; }
+  nav { display:flex; gap:6px; margin-top:16px; }
+  nav button { border:1px solid var(--line); background:var(--card); padding:8px 14px; border-radius:8px; cursor:pointer; font:inherit; }
+  nav button.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  main { max-width:900px; margin:16px auto; padding:0 24px 40px; }
+  .panel { display:none; } .panel.on { display:block; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:12px; }
+  #log .q { font-weight:600; margin-bottom:6px; }
+  #log .a { white-space:pre-wrap; line-height:1.5; }
+  .meta { color:var(--muted); font-size:12px; margin-top:8px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+  button.s { border:1px solid var(--line); background:#fff; border-radius:999px; padding:5px 12px; cursor:pointer; font:inherit; font-size:13px; }
+  button.s:hover { border-color:var(--ink); }
+  button.s.sel { background:var(--bad); color:#fff; border-color:var(--bad); }
+  .chips { display:none; } .chips.on { display:flex; }
+  form { display:flex; gap:8px; }
+  textarea, input { font:inherit; border:1px solid var(--line); border-radius:8px; padding:10px; width:100%; }
+  .primary { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:10px 18px; cursor:pointer; font:inherit; }
+  .tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px; background:#eef3ef; color:var(--accent); margin-right:4px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; }
+  footer { max-width:900px; margin:auto; padding:0 24px 30px; color:var(--muted); font-size:12px; }
+  .consent { color:var(--muted); font-size:12px; margin-top:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Atunse <span>·</span> feedback flywheel for N&#8209;ATLaS</h1>
+  <div class="sub">Catch where N&#8209;ATLaS fails, fix it with native speakers, export training data.</div>
+  <nav>
+    <button data-p="chat" class="on">Chat</button>
+    <button data-p="review">Review queue</button>
+    <button data-p="insights">Insights &amp; export</button>
+  </nav>
+</header>
+
+<main>
+  <section id="chat" class="panel on">
+    <div id="log"></div>
+    <div class="card">
+      <form id="ask">
+        <textarea id="q" rows="2" placeholder="Ask in English, Hausa, Igbo or Yoruba"></textarea>
+        <button class="primary">Send</button>
+      </form>
+      <div class="consent">Your feedback on answers may be used to improve N&#8209;ATLaS. No names or contact details are stored.</div>
+    </div>
+  </section>
+
+  <section id="review" class="panel">
+    <div class="card row" style="margin-top:0">
+      <label>Reviewer <input id="reviewer" placeholder="your name" style="width:160px"></label>
+      <label>Language
+        <select id="qlang"><option value="">All</option><option value="ha">Hausa</option><option value="ig">Igbo</option><option value="yo">Yoruba</option><option value="en">English</option></select>
+      </label>
+      <button class="s" id="reload">Refresh</button>
+      <span class="meta" id="qcount"></span>
+    </div>
+    <div id="queue"></div>
+  </section>
+
+  <section id="insights" class="panel">
+    <div class="card"><table id="stats"></table></div>
+    <div class="card">
+      <b>Export training data</b>
+      <div class="row">
+        <a class="s" href="/v1/export/sft" download="atunse_sft.jsonl"><button class="s">SFT (chat messages)</button></a>
+        <a href="/v1/export/sft?fmt=natlas_text" download="atunse_sft_natlas.jsonl"><button class="s">SFT (N&#8209;ATLaS template text)</button></a>
+        <a href="/v1/export/dpo" download="atunse_dpo.jsonl"><button class="s">Preference pairs (DPO)</button></a>
+        <a href="/docs"><button class="s">API docs</button></a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>N&#8209;ATLaS is an initiative of the Federal Ministry of Communications, Innovation and Digital Economy, and powered by Awarri Technologies.</footer>
+
+<script>
+const LANG = { en:"English", ha:"Hausa", ig:"Igbo", yo:"Yoruba", unknown:"unknown" };
+let sid; try { sid = localStorage.getItem("atunse_sid"); } catch (e) {}
+if (!sid) { sid = crypto.randomUUID(); try { localStorage.setItem("atunse_sid", sid); } catch (e) {} }
+let history = [];
+
+const api = (path, body) => fetch(path, body ? { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(body) } : {}).then(r => r.json());
+const esc = s => (s || "").replace(/[&<>]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;" }[c]));
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button, .panel").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); document.getElementById(b.dataset.p).classList.add("on");
+  if (b.dataset.p === "review") loadQueue();
+  if (b.dataset.p === "insights") loadStats();
+});
+
+async function send(question, regenerateOf) {
+  const msgs = regenerateOf ? history.slice(0, -1) : [...history, { role:"user", content:question }];
+  const card = document.createElement("div"); card.className = "card";
+  card.innerHTML = `<div class="q">${esc(msgs[msgs.length-1].content)}</div><div class="a">Thinking…</div>`;
+  document.getElementById("log").appendChild(card);
+  const r = await api("/v1/chat", { messages: msgs, session_id: sid, regenerate_of: regenerateOf || null });
+  history = [...msgs, { role:"assistant", content:r.response }];
+  card.querySelector(".a").textContent = r.response;
+  card.insertAdjacentHTML("beforeend", `
+    <div class="meta">asked in ${LANG[r.language]} · answered in ${LANG[r.response_language]} · ${r.tokens_out} tokens${r.language_lock_triggered ? " · <b>language lock re-asked the model</b>" : ""}</div>
+    <div class="row">
+      <button class="s up">👍</button><button class="s down">👎</button><button class="s regen">↻ Try again</button>
+    </div>
+    <div class="row chips">
+      ${["wrong_language","wrong_facts","unnatural","biased","misunderstood"].map(x => `<button class="s chip" data-r="${x}">${x.replace("_"," ")}</button>`).join("")}
+    </div>`);
+  const id = r.interaction_id;
+  card.querySelector(".up").onclick = e => { api("/v1/signal", { interaction_id:id, type:"thumbs_up" }); e.target.classList.add("sel"); };
+  card.querySelector(".down").onclick = e => { api("/v1/signal", { interaction_id:id, type:"thumbs_down" }); e.target.classList.add("sel"); card.querySelector(".chips").classList.add("on"); };
+  card.querySelectorAll(".chip").forEach(c => c.onclick = () => { api("/v1/signal", { interaction_id:id, type:"thumbs_down", reason:c.dataset.r }); c.classList.add("sel"); });
+  card.querySelector(".regen").onclick = () => send(null, id);
+}
+
+document.getElementById("ask").onsubmit = e => {
+  e.preventDefault(); const q = document.getElementById("q").value.trim();
+  if (q) { document.getElementById("q").value = ""; send(q); }
+};
+
+async function loadQueue() {
+  const lang = document.getElementById("qlang").value;
+  const d = await api("/v1/queue" + (lang ? "?language=" + lang : ""));
+  document.getElementById("qcount").textContent = `${d.count} item(s) to review`;
+  document.getElementById("queue").innerHTML = d.items.map(it => `
+    <div class="card" data-id="${it.interaction_id}">
+      <span class="tag">${LANG[it.language]}</span><span class="tag">priority ${it.priority}</span><span class="tag">${it.cluster_size} similar flag(s)</span>
+      <div class="meta">signals: ${esc(it.signals)}${it.reasons ? " · reasons: " + esc(it.reasons) : ""}</div>
+      <div class="q" style="margin-top:8px"><b>Question:</b> ${esc(it.question)}</div>
+      <div class="meta">Edit the answer below so it is correct and natural. Only change what is wrong.</div>
+      <textarea rows="6">${esc(it.response)}</textarea>
+      <div class="row"><button class="primary save">Save fix</button><button class="s ok">Original was fine</button></div>
+    </div>`).join("");
+  document.querySelectorAll("#queue .card").forEach(c => {
+    const id = +c.dataset.id, who = () => document.getElementById("reviewer").value || "anonymous";
+    c.querySelector(".save").onclick = async () => { await api("/v1/review", { interaction_id:id, fixed_text:c.querySelector("textarea").value, reviewer:who(), status:"fixed" }); c.remove(); };
+    c.querySelector(".ok").onclick = async () => { await api("/v1/review", { interaction_id:id, reviewer:who(), status:"rejected" }); c.remove(); };
+  });
+}
+document.getElementById("reload").onclick = loadQueue;
+document.getElementById("qlang").onchange = loadQueue;
+
+async function loadStats() {
+  const s = await api("/v1/stats");
+  const cols = ["interactions","flag_rate","language_drift_rate","tokens_per_word","reviewer_fixes","mean_correction_distance"];
+  document.getElementById("stats").innerHTML =
+    `<tr><th>Language</th>${cols.map(c => `<th>${c.replaceAll("_"," ")}</th>`).join("")}</tr>` +
+    Object.entries(s).map(([l, v]) => `<tr><td>${l}</td>${cols.map(c => `<td>${v[c] ?? "–"}</td>`).join("")}</tr>`).join("");
+}
+</script>
+</body>
+</html>
